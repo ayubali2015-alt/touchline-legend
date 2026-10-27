@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Touchline Legend — 3D Match Prototype</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#06120d;color:#f3fff5;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:none}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;inset:0;pointer-events:none}
+.top{position:absolute;top:env(safe-area-inset-top,12px);left:0;right:0;display:flex;justify-content:center;padding:12px}
+.score{background:#06120de8;border:1px solid #5c805c;border-radius:15px;padding:9px 18px;text-align:center;box-shadow:0 8px 30px #0005}
+.score b{font-size:20px;letter-spacing:.08em}.score small{display:block;color:#b6d4bb;font-size:10px;letter-spacing:.18em}
+.brand{position:absolute;top:18px;left:18px;font-weight:900;letter-spacing:.12em;font-size:13px;text-shadow:0 2px 8px #000}.brand span{color:#c9ff43}
+#hint{position:absolute;top:86px;left:50%;transform:translateX(-50%);background:#071810cc;border:1px solid #44634a;border-radius:99px;padding:8px 13px;font-size:12px;color:#e8f5e9;white-space:nowrap;max-width:85vw;text-align:center}
+#leftPad{position:absolute;left:20px;bottom:28px;width:132px;height:132px;border-radius:50%;background:#0a2117a6;border:2px solid #d4f4cf66;pointer-events:auto;touch-action:none}
+#stick{position:absolute;left:40px;top:40px;width:48px;height:48px;border-radius:50%;background:#d7ff74;border:2px solid #f7ffe8;box-shadow:0 4px 18px #0008;transform:translate(0,0)}
+.actions{position:absolute;right:18px;bottom:25px;display:grid;grid-template-columns:repeat(2,74px);gap:10px;pointer-events:auto}
+.action{height:66px;border-radius:50%;background:#0b2119d9;border:2px solid #caff6b;color:#f4ffe9;font-weight:900;font-size:11px;box-shadow:0 6px 16px #0005;touch-action:manipulation}
+.action.primary{background:#caff6b;color:#10200b}.action:active{transform:scale(.95)}
+#bottom{position:absolute;left:50%;bottom:13px;transform:translateX(-50%);font-size:10px;color:#d3e5d2;background:#071810a8;padding:5px 9px;border-radius:9px;white-space:nowrap}
+#start,#result{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(#06140dc9,#06140df0);padding:20px;z-index:5}
+.modal{max-width:440px;width:100%;background:linear-gradient(150deg,#163b28,#09170f);border:1px solid #648b56;border-radius:25px;padding:26px;box-shadow:0 20px 80px #0009}
+.kicker{font-size:11px;color:#caff6b;letter-spacing:.2em;font-weight:900}.modal h1{font-size:clamp(34px,9vw,56px);line-height:.92;letter-spacing:-.05em;margin:12px 0}.modal p{color:#c0d5c5;line-height:1.55;font-size:14px}
+button.cta{width:100%;border:0;border-radius:12px;background:#caff6b;color:#11200a;padding:14px;font-weight:950;letter-spacing:.05em;font-size:14px;margin-top:10px}
+.small{font-size:11px!important;color:#91b09a!important}
+@media(min-width:850px){#leftPad{left:34px;bottom:34px;width:150px;height:150px}#stick{left:48px;top:48px}.actions{right:35px;bottom:35px}.action{width:82px;height:74px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+ <div class="brand">TOUCHLINE <span>LEGEND</span></div>
+ <div class="top"><div class="score"><small>FRIENDLY · NORTHBRIDGE STADIUM</small><b id="score">NBR 0 — 0 RIV</b></div></div>
+ <div id="hint">Move with the left pad · Get close to the ball</div>
+ <div id="leftPad"><div id="stick"></div></div>
+ <div class="actions">
+  <button class="action" id="pass">PASS</button><button class="action primary" id="shoot">SHOOT</button>
+  <button class="action" id="sprint">SPRINT</button><button class="action" id="switch">SWITCH</button>
+ </div>
+ <div id="bottom">Prototype · fictional teams · no internet required</div>
+</div>
+<div id="start"><div class="modal"><div class="kicker">CAREER MODE · MATCH 01</div><h1>TOUCHLINE<br>LEGEND</h1><p>A playable 3D-style football match prototype. Move your player, chase the ball, pass, shoot and score. This build uses simple 3D shapes so it loads quickly on mobile.</p><button class="cta" id="play">KICK OFF</button><p class="small">Landscape orientation recommended. This is a prototype, not yet a full commercial football simulation.</p></div></div>
+<div id="result" style="display:none"><div class="modal"><div class="kicker">FULL TIME</div><h1 id="finalScore">0 — 0</h1><p id="finalText">Good match.</p><button class="cta" id="again">PLAY AGAIN</button></div></div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+const canvas=document.querySelector('#game');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x8fc8e0);scene.fog=new THREE.Fog(0x8fc8e0,45,100);
+const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,180);
+scene.add(new THREE.HemisphereLight(0xdaf1ff,0x214c2c,2.1));
+const sun=new THREE.DirectionalLight(0xfff3d9,3.2);sun.position.set(-16,28,8);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-35;sun.shadow.camera.right=35;sun.shadow.camera.top=35;sun.shadow.camera.bottom=-35;scene.add(sun);
+const mat=(color,roughness=.85)=>new THREE.MeshStandardMaterial({color,roughness});
+const grass=mat(0x1a6b3a),stripe1=mat(0x1d7540),stripe2=mat(0x176234),white=mat(0xeaf6e8),dark=mat(0x12251c),red=mat(0xe94b43),lime=mat(0xcaff6b),skin=mat(0xc68a60),black=mat(0x101512),ballMat=mat(0xf7f7ec,.48);
+function box(w,h,d,m,x,y,z){const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;scene.add(o);return o}
+const field=box(44,.3,28,grass,0,-.25,0);field.receiveShadow=true;
+for(let i=0;i<8;i++){const s=box(5.5,.015,28,i%2?stripe1:stripe2,-19.25+i*5.5,-.08,0);s.castShadow=false}
+function line(w,d,x,z){const o=new THREE.Mesh(new THREE.BoxGeometry(w,.025,d),white);o.position.set(x,-.075,z);scene.add(o)}
+line(44,.12,0,-13.7);line(44,.12,0,13.7);line(.12,27.4,-21.9,0);line(.12,27.4,21.9,0);line(.12,27.4,0,0);
+const circle=new THREE.Mesh(new THREE.RingGeometry(4.45,4.58,64),white);circle.rotation.x=-Math.PI/2;circle.position.y=-.06;scene.add(circle);
+function outlineRect(w,d,x,z){line(.12,d,x-w/2,z-d/2);line(.12,d,x+w/2,z-d/2);line(w,.12,x,z-d);line(w,.12,x,z)}
+// penalty boxes, approximate clean white markings
+for(const side of [-1,1]){const x=side*15.8;line(.12,16,x,0);line(6.2,.12,side*18.8,-8);line(6.2,.12,side*18.8,8);line(.12,16,side*21.8,0);
+ const goalMat=mat(0xf3f7ef);for(const z of [-3.2,3.2])box(.22,2.2,.22,goalMat,side*22.4,1.05,z);box(.22,2.2,6.4,goalMat,side*22.4,2.1,0);
+ // net grid
+ for(let j=0;j<7;j++)line(.035,.035,side*22.6,-3+j); 
+}
+const standMat=mat(0x243d35),seat1=mat(0x78968b),seat2=mat(0xc9d5c8);
+for(const side of [-1,1]){for(let tier=0;tier<5;tier++){const z=side*(16+tier*.6);box(48,.6,1.1,standMat,0,tier*.65,z);for(let k=0;k<36;k++)box(.42,.22,.28,(k%3===0?seat2:seat1),-22+k*1.25,.48+tier*.65,z-.1)}} 
+// stadium floodlights
+for(const x of [-22,22])for(const z of [-15,15]){box(.25,10,.25,dark,x,5.2,z);const lamp=new THREE.PointLight(0xe7f6ff,12,24);lamp.position.set(x,10.5,z);scene.add(lamp);box(1.5,.3,.4,white,x,10.3,z)}
+function makePlayer(color,x,z,isUser=false){
+ const g=new THREE.Group();scene.add(g);g.position.set(x,0,z);
+ const shirt=mat(color),shorts=mat(isUser?0x142b21:0xeeeede),sock=mat(isUser?0xcaff6b:0xe94b43);
+ const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.43,.62,4,8),shirt);torso.position.y=1.38;torso.castShadow=true;g.add(torso);
+ const head=new THREE.Mesh(new THREE.SphereGeometry(.27,14,12),skin);head.position.y=2.13;head.castShadow=true;g.add(head);
+ const hair=new THREE.Mesh(new THREE.SphereGeometry(.28,12,8),black);hair.scale.set(1,.48,1);hair.position.y=2.32;g.add(hair);
+ const legGeo=new THREE.CapsuleGeometry(.14,.62,3,6);
+ for(const side of [-1,1]){const leg=new THREE.Mesh(legGeo,shorts);leg.position.set(side*.2,.53,0);leg.castShadow=true;g.add(leg);const boot=new THREE.Mesh(new THREE.BoxGeometry(.23,.13,.4),black);boot.position.set(side*.2,.12,-.08);g.add(boot);const arm=new THREE.Mesh(new THREE.CapsuleGeometry(.11,.52,3,6),shirt);arm.position.set(side*.49,1.36,0);arm.rotation.z=side*-.18;g.add(arm)}
+ g.userData={isUser,vel:new THREE.Vector3(),color};return g
+}
+const user=makePlayer(0xcaff6b,-5,1,true);
+const mates=[makePlayer(0xcaff6b,-10,-5),makePlayer(0xcaff6b,1,-7),makePlayer(0xcaff6b,-1,7),makePlayer(0xcaff6b,8,2)];
+const foes=[makePlayer(0xe94b43,2,0),makePlayer(0xe94b43,7,-6),makePlayer(0xe94b43,10,6),makePlayer(0xe94b43,15,0),makePlayer(0xe94b43,-2,-10)];
+const keeper=makePlayer(0x3a82d5,20,0);
+const ball=new THREE.Mesh(new THREE.SphereGeometry(.34,20,16),ballMat);ball.position.set(-3,.36,1);ball.castShadow=true;scene.add(ball);
+const seams=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(.342,1)),new THREE.LineBasicMaterial({color:0x202722}));ball.add(seams);
+let started=false,ended=false,scoreH=0,scoreA=0,minute=0,energy=100,ballVel=new THREE.Vector3(),lastTouch=user;
+const keys={x:0,z:0,sprint:false};let padPointer=null,padOrigin={x:0,y:0};
+const pad=document.querySelector('#leftPad'),stick=document.querySelector('#stick');
+function padStart(e){e.preventDefault();padPointer=e.pointerId;pad.setPointerCapture(e.pointerId);const r=pad.getBoundingClientRect();padOrigin={x:r.left+r.width/2,y:r.top+r.height/2};movePad(e)}
+function movePad(e){if(padPointer!==e.pointerId)return;const dx=e.clientX-padOrigin.x,dy=e.clientY-padOrigin.y,len=Math.max(1,Math.hypot(dx,dy)),scale=Math.min(1,45/len);keys.x=dx/45*scale;keys.z=dy/45*scale;stick.style.transform=`translate(${keys.x*38}px,${keys.z*38}px)`}
+function padEnd(e){if(padPointer!==e.pointerId)return;padPointer=null;keys.x=keys.z=0;stick.style.transform='translate(0,0)'}
+pad.addEventListener('pointerdown',padStart);pad.addEventListener('pointermove',movePad);pad.addEventListener('pointerup',padEnd);pad.addEventListener('pointercancel',padEnd);
+window.addEventListener('keydown',e=>{if(['ArrowLeft','a','A'].includes(e.key))keys.x=-1;if(['ArrowRight','d','D'].includes(e.key))keys.x=1;if(['ArrowUp','w','W'].includes(e.key))keys.z=-1;if(['ArrowDown','s','S'].includes(e.key))keys.z=1;if(e.key==='Shift')keys.sprint=true;if(e.key===' '){e.preventDefault();shoot()}if(e.key==='e')pass()});
+window.addEventListener('keyup',e=>{if(['ArrowLeft','a','A','ArrowRight','d','D'].includes(e.key))keys.x=0;if(['ArrowUp','w','W','ArrowDown','s','S'].includes(e.key))keys.z=0;if(e.key==='Shift')keys.sprint=false});
+document.querySelector('#sprint').addEventListener('pointerdown',e=>{e.preventDefault();keys.sprint=true});document.querySelector('#sprint').addEventListener('pointerup',()=>keys.sprint=false);document.querySelector('#sprint').addEventListener('pointercancel',()=>keys.sprint=false);
+function closestPlayer(){let arr=[user,...mates];return arr.reduce((a,b)=>b.position.distanceTo(ball.position)<a.position.distanceTo(ball.position)?b:a,arr[0])}
+function pass(){if(!started||ended)return;const p=closestPlayer();if(p.position.distanceTo(ball.position)>4.2){say('Get closer to the ball to pass.');return}let target=mates.filter(m=>m!==p).sort((a,b)=>a.position.distanceTo(p.position)-b.position.distanceTo(p.position))[0]||mates[0];const dir=target.position.clone().sub(ball.position).setY(0).normalize();ballVel.copy(dir.multiplyScalar(13));lastTouch=p;say('Pass played into space.')}
+function shoot(){if(!started||ended)return;const p=closestPlayer();if(p.position.distanceTo(ball.position)>3.8){say('Get close enough to the ball to shoot.');return}const dir=new THREE.Vector3(1,0,(Math.random()-.5)*.55).normalize();ballVel.copy(dir.multiplyScalar(19));ballVel.y=3.5;lastTouch=p;say('Shot taken! Find the target.')}
+document.querySelector('#pass').onclick=pass;document.querySelector('#shoot').onclick=shoot;
+document.querySelector('#switch').onclick=()=>{if(!started||ended)return;let nearest=closestPlayer();if(nearest!==user){const old=user.position.clone();user.position.copy(nearest.position);nearest.position.copy(old);say('Player switched. You control the nearest teammate.')}else say('You are already closest to the ball.')};
+function say(t){document.querySelector('#hint').textContent=t}
+function kickOff(){started=true;ended=false;minute=0;scoreH=scoreA=0;energy=100;ball.position.set(-3,.36,1);ballVel.set(0,0,0);user.position.set(-5,0,1);document.querySelector('#score').textContent='NBR 0 — 0 RIV';document.querySelector('#start').style.display='none';document.querySelector('#result').style.display='none';say('Move with the left pad · PASS or SHOOT near the ball');}
+document.querySelector('#play').onclick=kickOff;document.querySelector('#again').onclick=kickOff;
+function endMatch(){ended=true;document.querySelector('#finalScore').textContent=scoreH+' — '+scoreA;document.querySelector('#finalText').textContent=scoreH>scoreA?'A statement win! Your manager will be impressed.':scoreH===scoreA?'A competitive draw. Keep training to improve your next performance.':'A tough result. Review your movement and come back stronger.';document.querySelector('#result').style.display='flex'}
+function clampPlayer(p){p.position.x=Math.max(-20,Math.min(20,p.position.x));p.position.z=Math.max(-12.5,Math.min(12.5,p.position.z))}
+function animate(){
+ requestAnimationFrame(animate);const dt=Math.min(renderer.info?0.033:0.033,0.033);
+ if(started&&!ended){
+  minute+=dt*1.45;if(minute>=90){minute=90;endMatch()}
+  const speed=keys.sprint&&energy>0?8.5:5.6;if(keys.sprint&&Math.hypot(keys.x,keys.z)>.1)energy=Math.max(0,energy-dt*9);else energy=Math.min(100,energy+dt*3);
+  user.position.x+=keys.x*speed*dt;user.position.z+=keys.z*speed*dt;clampPlayer(user);
+  if(Math.hypot(keys.x,keys.z)>.12)user.rotation.y=Math.atan2(keys.x,keys.z);
+  // AI team and opposition move into shape and press the ball
+  mates.forEach((p,i)=>{const target=new THREE.Vector3([-11,0,8,13][i],0,[-6,-8,7,2][i]);if(ball.position.x<3)target.x+=2; p.position.lerp(target,dt*.2);});
+  foes.forEach((p,i)=>{const target=ball.position.clone();target.x-=1.2+(i%3)*1.6;target.z+=(i-2)*2.8;p.position.lerp(target,dt*(i===0?.23:.12));clampPlayer(p)});
+  const kd=keeper.position.distanceTo(ball.position);if(kd<6){keeper.position.z+=(ball.position.z-keeper.position.z)*dt*.4}
+  // possession dribble if controlled player is close and ball is slow
+  const near=closestPlayer();if(near.position.distanceTo(ball.position)<1.7&&ballVel.length()<2){ball.position.x+=(near.position.x-ball.position.x)*dt*4;ball.position.z+=(near.position.z-ball.position.z)*dt*4;ball.position.y=.36}
+  ballVel.y-=9.8*dt;ball.position.addScaledVector(ballVel,dt);if(ball.position.y<.34){ball.position.y=.34;ballVel.y=Math.abs(ballVel.y)*.42;if(Math.abs(ballVel.y)<.8)ballVel.y=0}
+  ballVel.multiplyScalar(Math.pow(.985,dt*60));
+  if(ball.position.z>13||ball.position.z< -13){ball.position.z=Math.max(-13,Math.min(13,ball.position.z));ballVel.z*=-.55}
+  if(ball.position.x>22.6&&Math.abs(ball.position.z)<3.1){scoreH++;document.querySelector('#score').textContent=`NBR ${scoreH} — ${scoreA} RIV`;ball.position.set(0,.36,0);ballVel.set(0,0,0);say('GOAL! Northbridge scores!')}
+  else if(ball.position.x< -22.6&&Math.abs(ball.position.z)<3.1){scoreA++;document.querySelector('#score').textContent=`NBR ${scoreH} — ${scoreA} RIV`;ball.position.set(0,.36,0);ballVel.set(0,0,0);say('Riverside score. Regroup and kick off.')}
+  else if(ball.position.x>23||ball.position.x< -23){ball.position.set(0,.36,0);ballVel.set(0,0,0);say('Ball out of play. Resetting possession.')}
+  document.querySelector('#bottom').textContent=`MIN ${String(Math.floor(minute)).padStart(2,'0')} · ENERGY ${Math.round(energy)}% · WASD/ARROWS ALSO WORK`;
+ }
+ ball.rotation.x+=ballVel.z*dt;ball.rotation.z-=ballVel.x*dt;
+ // chase camera, slightly above and behind the player
+ const target=new THREE.Vector3(user.position.x-8,8.5,user.position.z+12);
+ camera.position.lerp(target,.06);camera.lookAt(user.position.x+2,0,user.position.z);
+ renderer.render(scene,camera);
+}
+function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}
+window.addEventListener('resize',resize);animate();
+</script>
+</body></html>
